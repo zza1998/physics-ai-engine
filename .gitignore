@@ -1,0 +1,29 @@
+# Build output
+build/
+out/
+
+# FetchContent downloads
+third_party/_deps/
+
+# IDE / editor
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+CMakeUserPresets.json
+CMakeSettings.json
+
+# Compiled / intermediate
+*.obj
+*.lib
+*.pdb
+*.exe
+*.dll
+*.ilk
+*.exp
+
+# OS
+Thumbs.db
+.DS_Store
