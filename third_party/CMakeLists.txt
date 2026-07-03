@@ -13,15 +13,17 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glfw)
 
 # ---- glad2 (OpenGL 4.6 core loader) ----
-# 必须在 FetchContent 之前设置 glad_API, glad2 据此生成加载器
-set(GLAD_API "gl:core=4.6" CACHE STRING "glad2 API spec" FORCE)
+# glad2 的 CMakeLists 在 cmake/ 子目录, 需指定 SOURCE_SUBDIR
 FetchContent_Declare(
     glad
     GIT_REPOSITORY https://github.com/Dav1dde/glad.git
     GIT_TAG        v2.0.6
     GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake
 )
 FetchContent_MakeAvailable(glad)
+# 用 glad2 提供的函数创建加载器库 (target 名 = glad)
+glad_add_library(glad STATIC API gl:core=4.6)
 
 # ---- glm ----
 FetchContent_Declare(

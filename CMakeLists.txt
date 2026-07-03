@@ -18,9 +18,3 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_subdirectory(third_party)
 add_subdirectory(src)
-
-# 运行时能找到 shader: 拷贝 assets/ 到可执行目录
-add_custom_command(TARGET leo_app POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:leo_app>/assets
-)
