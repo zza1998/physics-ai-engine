@@ -30,14 +30,14 @@ void Camera::update(float dt, const Input& input) {
 
     updateVectors();
 
-    // WASD 移动
+    // WASD 移动 + Q/E 上下
     float v = m_cfg.moveSpeed * dt;
     if (input.isKeyDown(GLFW_KEY_W)) m_cfg.position += m_front * v;
     if (input.isKeyDown(GLFW_KEY_S)) m_cfg.position -= m_front * v;
     if (input.isKeyDown(GLFW_KEY_D)) m_cfg.position += m_right * v;
     if (input.isKeyDown(GLFW_KEY_A)) m_cfg.position -= m_right * v;
-    if (input.isKeyDown(GLFW_KEY_SPACE))       m_cfg.position += m_cfg.worldUp * v;
-    if (input.isKeyDown(GLFW_KEY_LEFT_SHIFT))  m_cfg.position -= m_cfg.worldUp * v;
+    if (input.isKeyDown(GLFW_KEY_E)) m_cfg.position += m_cfg.worldUp * v;
+    if (input.isKeyDown(GLFW_KEY_Q)) m_cfg.position -= m_cfg.worldUp * v;
 }
 
 glm::mat4 Camera::viewMatrix() const {

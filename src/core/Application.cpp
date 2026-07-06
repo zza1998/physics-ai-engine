@@ -56,6 +56,10 @@ bool Application::init() {
     // 7. Camera
     m_camera = std::make_unique<Camera>(CameraConfig{});
 
+    // 8. 锁定鼠标到窗口 (flycam), 隐藏光标, 移动量作为视角 delta
+    // ESC 退出程序, 无需单独解锁
+    glfwSetInputMode(m_window->handle(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
     return true;
 }
 
