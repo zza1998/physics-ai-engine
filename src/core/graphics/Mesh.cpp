@@ -9,6 +9,32 @@ Mesh::~Mesh() {
     release();
 }
 
+Mesh::Mesh(Mesh&& other) noexcept {
+    m_vao = other.m_vao;
+    m_vbo = other.m_vbo;
+    m_ibo = other.m_ibo;
+    m_indexCount = other.m_indexCount;
+    other.m_vao = 0;
+    other.m_vbo = 0;
+    other.m_ibo = 0;
+    other.m_indexCount = 0;
+}
+
+Mesh& Mesh::operator=(Mesh&& other) noexcept {
+    if (this != &other) {
+        release();
+        m_vao = other.m_vao;
+        m_vbo = other.m_vbo;
+        m_ibo = other.m_ibo;
+        m_indexCount = other.m_indexCount;
+        other.m_vao = 0;
+        other.m_vbo = 0;
+        other.m_ibo = 0;
+        other.m_indexCount = 0;
+    }
+    return *this;
+}
+
 bool Mesh::upload(const std::vector<Vertex>& verts, const std::vector<GLuint>& indices) {
     release();
 

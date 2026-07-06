@@ -12,6 +12,22 @@ public:
     Shader();
     ~Shader();
 
+    // Shader 持有 GL program, 禁拷贝, 实现移动
+    Shader(const Shader&) = delete;
+    Shader& operator=(const Shader&) = delete;
+    Shader(Shader&& other) noexcept : m_program(other.m_program), m_uniformCache(std::move(other.m_uniformCache)) {
+        other.m_program = 0;
+    }
+    Shader& operator=(Shader&& other) noexcept {
+        if (this != &other) {
+            if (m_program) glDeleteProgram(m_program);
+            m_program = other.m_program;
+            m_uniformCache = std::move(other.m_uniformCache);
+            other.m_program = 0;
+        }
+        return *this;
+    }
+
     bool loadFromFile(const std::string& vertPath, const std::string& fragPath);
     bool loadFromSource(const std::string& vertSrc, const std::string& fragSrc);
 
