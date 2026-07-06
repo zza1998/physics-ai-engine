@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "physics/PhysicsTypes.h"  // VerletPoint / StaticBody / ColliderRef
 
 namespace leo {
 
@@ -41,10 +42,7 @@ struct Light {
     float    intensity = 1.0f;
 };
 
-// ---- M2 在此追加物理组件 (M1 不定义) ----
-// struct VerletPoint  { glm::vec3 x_current, x_prev; float mass; int collision_group; };
-// struct StaticBody   { AABB aabb; float friction; };
-// struct ColliderRef  { ... };
-// struct RagdollRef   { std::vector<entt::entity> points; std::vector<Constraint> constraints; };
+// 物理组件 (VerletPoint / StaticBody / ColliderRef) 定义在 physics/PhysicsTypes.h
+// 此处通过 #include 带入, 供 Scene/Application/Renderer 使用
 
 } // namespace leo

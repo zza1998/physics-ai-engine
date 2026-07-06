@@ -18,3 +18,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_subdirectory(third_party)
 add_subdirectory(src)
+
+# M2: 单元测试
+enable_testing()
+add_subdirectory(tests)

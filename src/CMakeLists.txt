@@ -1,4 +1,4 @@
-# ---- leo_core 静态库 ----
+# ---- leo_core 静态库 (含物理源文件, 方案A 避免循环依赖) ----
 add_library(leo_core STATIC
     core/Application.cpp
     core/Window.cpp
@@ -9,10 +9,14 @@ add_library(leo_core STATIC
     core/graphics/Mesh.cpp
     core/graphics/MeshPrimitives.cpp
     core/scene/Scene.cpp
+    physics/Verlet.cpp
+    physics/Constraint.cpp
+    physics/Collider.cpp
+    physics/PhysicsSystem.cpp
 )
 target_include_directories(leo_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}        # src/   -> "core/xxx"
-    ${CMAKE_CURRENT_SOURCE_DIR}/core   # src/core -> "graphics/xxx" "scene/xxx" "Application.h"
+    ${CMAKE_CURRENT_SOURCE_DIR}        # src/   -> "core/xxx" "physics/xxx"
+    ${CMAKE_CURRENT_SOURCE_DIR}/core   # src/core -> "graphics/xxx" "scene/xxx"
 )
 target_link_libraries(leo_core PUBLIC
     glfw
@@ -20,7 +24,6 @@ target_link_libraries(leo_core PUBLIC
     glm::glm
     EnTT::EnTT
 )
-# M2: target_link_libraries(leo_core PUBLIC leo_physics)
 
 # ---- leo_app 可执行 ----
 add_executable(leo_app main.cpp)
@@ -32,4 +35,3 @@ add_custom_command(TARGET leo_app POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:leo_app>/assets
 )
-
