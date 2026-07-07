@@ -8,6 +8,8 @@ add_library(leo_core STATIC
     core/graphics/Shader.cpp
     core/graphics/Mesh.cpp
     core/graphics/MeshPrimitives.cpp
+    core/graphics/DebugRenderer.cpp
+    core/ui/ImGuiLayer.cpp
     core/scene/Scene.cpp
     physics/Verlet.cpp
     physics/Constraint.cpp
@@ -23,7 +25,27 @@ target_link_libraries(leo_core PUBLIC
     glad
     glm::glm
     EnTT::EnTT
+    imgui_backends
 )
+
+# ---- imgui_backends: ImGui 核心 + GLFW/OpenGL3 backends ----
+set(IMGUI_DIR ${FETCHCONTENT_BASE_DIR}/imgui-src CACHE PATH "imgui source dir")
+add_library(imgui_backends STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui_backends PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+)
+target_link_libraries(imgui_backends PUBLIC glfw glad)
+# imgui_impl_opengl3 用 glad2 加载 GL, 需定义此宏
+target_compile_definitions(imgui_backends PUBLIC IMGUI_IMPL_OPENGL_LOADER_GLAD2)
 
 # ---- leo_app 可执行 ----
 add_executable(leo_app main.cpp)

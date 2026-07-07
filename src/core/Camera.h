@@ -27,6 +27,7 @@ public:
     glm::mat4 viewMatrix() const;
     glm::mat4 projectionMatrix(float aspect) const;
     const glm::vec3& position() const { return m_cfg.position; }
+    const glm::vec3& front() const { return m_front; }
 
 private:
     void updateVectors();

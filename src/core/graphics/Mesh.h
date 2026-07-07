@@ -18,11 +18,16 @@ public:
     Mesh(Mesh&& other) noexcept;
     Mesh& operator=(Mesh&& other) noexcept;
 
-    bool upload(const std::vector<Vertex>& verts, const std::vector<GLuint>& indices);
+    bool upload(const std::vector<Vertex>& verts, const std::vector<GLuint>& indices,
+                GLenum drawMode = GL_TRIANGLES, bool dynamic = false);
     void release();
 
+    // 动态更新顶点位置 (debug 点云/线每帧用), 顶点数需与 upload 时一致
+    void updateVertices(const std::vector<Vertex>& verts);
+
     void bind() const;  // glBindVertexArray
-    void draw() const;  // glDrawElements
+    // overrideCount>0 时只画前 overrideCount 个顶点/索引 (debug 动态绘制用)
+    void draw(GLsizei overrideCount = 0) const;
 
     GLsizei indexCount() const { return m_indexCount; }
     bool valid() const { return m_vao != 0; }
@@ -30,6 +35,8 @@ public:
 private:
     GLuint  m_vao = 0, m_vbo = 0, m_ibo = 0;
     GLsizei m_indexCount = 0;
+    GLenum  m_drawMode = GL_TRIANGLES;
+    GLsizei m_vertCount = 0;
 };
 
 } // namespace leo

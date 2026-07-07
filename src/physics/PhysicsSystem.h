@@ -13,12 +13,12 @@ namespace leo {
 struct PhysicsConfig {
     glm::vec3 gravity{0.0f, -9.81f, 0.0f};
     float damping         = 0.99f;  // 位置阻尼 (每子步)
-    int   substeps        = 6;      // 每帧子步数
-    int   iterations      = 12;     // 约束求解迭代
+    int   substeps        = 8;      // 每帧子步数
+    int   iterations      = 16;     // 约束求解迭代
     float dt_max          = 1.0f / 30.0f;  // dt 上限, 防卡顿爆炸
     bool  debug_draw_points    = true;
-    bool  debug_draw_colliders = false;
-    bool  debug_draw_constraints = false;
+    bool  debug_draw_colliders = true;
+    bool  debug_draw_constraints = true;
 };
 
 class PhysicsSystem : public System {

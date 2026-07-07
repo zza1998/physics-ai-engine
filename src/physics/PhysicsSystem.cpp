@@ -10,6 +10,47 @@
 
 namespace leo {
 
+// 碰撞响应配置 (软参数)
+//   kPushSoften   : 单步碰撞推出软化系数. 越小越软, 减少约束破坏 + 弹飞.
+//   kMaxPushStep  : 单 substep 内单点最大推出量. 超过则 clamp, 剩余下一 substep 处理.
+//                   防止深穿透时一次性把点/箱推飞.
+//   kFrictionTang: 切向摩擦衰减 (沿接触面速度衰减比例, 0=无摩擦 1=完全止住).
+static constexpr float kPushSoften   = 0.5f;
+static constexpr float kMaxPushStep  = 0.10f;
+static constexpr float kFrictionTang = 0.5f;
+
+// 把碰撞修正 (delta) 分配到一个 PointCloudBox 的全部 8 个点上.
+// 整箱平移而非单点推 -> 距离约束不破坏, 形状保持.
+// 返回: 是否找到了所属 collider 并已分配 (true=已分配, 调用方不应再单独推该点).
+// reg        : registry
+// pointEntity: 被碰的点 (用于查找所属 collider)
+// delta      : 该点应被推出的位移 (已含软化系数)
+// 返回所属 collider 指针 (nullptr = 该点不属于任何 PointCloudBox, 调用方自行单点推)
+static const Collider* distributePushToOwningBox(entt::registry& reg,
+                                                 entt::entity pointEntity,
+                                                 const glm::vec3& delta) {
+    auto colliders = reg.view<ColliderRef>();
+    for (auto ce : colliders) {
+        ColliderRef& cr = colliders.get<ColliderRef>(ce);
+        if (!cr.collider) continue;
+        if (!cr.collider->owns(pointEntity)) continue;
+        // 找到所属 collider: 把 delta 平均分到 8 点 (整箱平移)
+        // 注: PointCloudBox 暴露 pointEntities() 接口拿全部点
+        const auto* pcb = dynamic_cast<const PointCloudBox*>(cr.collider.get());
+        if (!pcb) return cr.collider.get();  // 非 PointCloudBox: 不分配, 退回单点 (M6 RB 用)
+        const auto& pts = pcb->pointEntities();
+        glm::vec3 perPoint = delta;  // 8 点都加相同 delta = 整箱平移
+        for (auto pe : pts) {
+            if (!reg.valid(pe)) continue;
+            auto* p = reg.try_get<VerletPoint>(pe);
+            if (!p || p->isStatic()) continue;
+            p->x_current += perPoint;
+        }
+        return cr.collider.get();
+    }
+    return nullptr;
+}
+
 void PhysicsSystem::update(float dt, Scene& scene) {
     // dt 上限保护: 卡顿时不让物理爆炸
     if (dt > m_cfg.dt_max) dt = m_cfg.dt_max;
@@ -62,6 +103,8 @@ void PhysicsSystem::substep(float dt, Scene& scene) {
 
 void PhysicsSystem::resolveCollisions(entt::registry& reg) {
     // 1. VerletPoint vs StaticBody (地面/平台/墙)
+    //    修正分配到所属箱子的全部 8 点 (整箱平移), 避免单点推破坏距离约束.
+    //    自由点 (不属于任何 collider) 仍单点推.
     auto points = reg.view<VerletPoint>();
     auto statics = reg.view<StaticBody>();
 
@@ -72,22 +115,29 @@ void PhysicsSystem::resolveCollisions(entt::registry& reg) {
         for (auto se : statics) {
             const StaticBody& sb = statics.get<StaticBody>(se);
             Contact c = pointVsAABB(p.x_current, sb.aabb);
-            if (c.hit) {
-                // 沿法线推出穿透
-                p.x_current += c.normal * c.penetration;
-                // 切向摩擦: 沿接触面衰减速度 (位置差)
-                // 简化: 把 x_prev 往 x_current 拉, 减少切向滑动
-                glm::vec3 v = p.x_current - p.x_prev;
-                // 切向 = v - (v·n)n
-                glm::vec3 vt = v - glm::dot(v, c.normal) * c.normal;
-                // 摩擦减少切向
-                p.x_prev += vt * sb.friction;
+            if (!c.hit) continue;
+
+            // clamp 单步推出量, 防深穿透时一次推飞
+            float push = c.penetration * kPushSoften;
+            if (push > kMaxPushStep) push = kMaxPushStep;
+            glm::vec3 delta = c.normal * push;
+
+            // 优先分配到所属箱子 (整箱平移). 不属于任何箱子则单点推.
+            const Collider* owner = distributePushToOwningBox(reg, e, delta);
+            if (!owner) {
+                p.x_current += delta;
             }
+            // 切向摩擦: 沿接触面衰减速度 (位置差). 仅对该点本身施加
+            // (整箱摩擦靠每个角点各自与地面接触时叠加, 自然生效)
+            glm::vec3 v = p.x_current - p.x_prev;
+            glm::vec3 vt = v - glm::dot(v, c.normal) * c.normal;
+            p.x_prev += vt * sb.friction * kFrictionTang;
         }
     }
 
     // 2. VerletPoint vs ColliderRef (动态点云箱)
-    //    不同 collision_group 的点才检测, 避免 ragdoll 自碰撞
+    //    跳过点所属的 collider (自碰撞), 否则箱子自己的点会推出自己 AABB -> 爆炸.
+    //    修正分配到被推点所属箱子的全部 8 点 (整箱平移), 避免形状破坏.
     auto colliders = reg.view<ColliderRef>();
     for (auto e : points) {
         VerletPoint& p = points.get<VerletPoint>(e);
@@ -96,10 +146,19 @@ void PhysicsSystem::resolveCollisions(entt::registry& reg) {
         for (auto ce : colliders) {
             ColliderRef& cr = colliders.get<ColliderRef>(ce);
             if (!cr.collider) continue;
-            // 简化: 不检查 collision_group (M2 demo 箱子都是独立组, 互碰 OK)
+            if (cr.collider->owns(e)) continue;  // 自碰撞过滤
             Contact c = cr.collider->collidePoint(p.x_current);
-            if (c.hit && c.penetration > 0.0001f) {
-                p.x_current += c.normal * c.penetration;
+            if (!c.hit || c.penetration <= 0.0001f) continue;
+
+            // clamp 单步推出量
+            float push = c.penetration * kPushSoften;
+            if (push > kMaxPushStep) push = kMaxPushStep;
+            glm::vec3 delta = c.normal * push;
+
+            // 分配到被推点所属箱子 (整箱平移). 自由点单点推.
+            const Collider* owner = distributePushToOwningBox(reg, e, delta);
+            if (!owner) {
+                p.x_current += delta;
             }
         }
     }
@@ -193,6 +252,8 @@ entt::entity PhysicsSystem::spawnBox(Scene& scene, const glm::vec3& pos, const g
     addFaceDiag(0,2); addFaceDiag(1,3);
     addFaceDiag(4,6); addFaceDiag(5,7);
     addFaceDiag(0,5); addFaceDiag(2,7);
+    // 4 条体对角线 (抗剪切, 防塌成平面)
+    addEdge(0,6); addEdge(1,7); addEdge(2,4); addEdge(3,5);
 
     // 箱子主体: 仅 ColliderRef (8 点拥有权在 points entity, collider 引用它们)
     // 可视化靠 DebugRenderer (AABB 线框 + 点 + 约束线)

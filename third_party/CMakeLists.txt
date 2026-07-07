@@ -53,3 +53,13 @@ FetchContent_Declare(
 # Windows 上强制 shared CRT 与主项目一致, 避免 LNK4098
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+
+# ---- Dear ImGui (M2 调试面板用) ----
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        v1.91.5
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(imgui)
+# ImGui 是单文件库, backends 在 src/CMakeLists.txt 单独编译成 imgui_backends 库
