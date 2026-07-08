@@ -68,25 +68,41 @@ void DebugRenderer::render(Scene& scene, Camera& camera, float aspect,
         }
     }
 
-    // 2. Collider AABB 线框 (青色) - 12 条边
+    // 2. Collider 线框 (青色) - RigidBodyBox 画 OBB(带旋转), 其他画 AABB
     if (drawColliders) {
         std::vector<Vertex> lines;
         auto view = reg.view<ColliderRef>();
         for (auto e : view) {
             ColliderRef& cr = view.get<ColliderRef>(e);
             if (!cr.collider) continue;
-            AABB b = cr.collider->getAABB();
-            glm::vec3 p000{b.lo.x, b.lo.y, b.lo.z}, p100{b.hi.x, b.lo.y, b.lo.z};
-            glm::vec3 p110{b.hi.x, b.hi.y, b.lo.z}, p010{b.lo.x, b.hi.y, b.lo.z};
-            glm::vec3 p001{b.lo.x, b.lo.y, b.hi.z}, p101{b.hi.x, b.lo.y, b.hi.z};
-            glm::vec3 p111{b.hi.x, b.hi.y, b.hi.z}, p011{b.lo.x, b.hi.y, b.hi.z};
-            auto edge = [&](glm::vec3 a, glm::vec3 c) {
-                lines.push_back({a, {0,0,0}});
-                lines.push_back({c, {0,0,0}});
+            glm::vec3 c[8];
+            auto* rbb = dynamic_cast<RigidBodyBox*>(cr.collider.get());
+            if (rbb) {
+                // OBB: 8 角点用 q 旋转
+                const RigidBody& rb = rbb->body();
+                glm::mat3 R(rb.q);
+                for (int i = 0; i < 8; ++i) {
+                    glm::vec3 local(
+                        (i&1) ? rb.half_size.x : -rb.half_size.x,
+                        (i&2) ? rb.half_size.y : -rb.half_size.y,
+                        (i&4) ? rb.half_size.z : -rb.half_size.z);
+                    c[i] = rb.x + R * local;
+                }
+            } else {
+                // AABB (PointCloudBox 等)
+                AABB b = cr.collider->getAABB();
+                c[0]={b.lo.x,b.lo.y,b.lo.z}; c[1]={b.hi.x,b.lo.y,b.lo.z};
+                c[2]={b.hi.x,b.hi.y,b.lo.z}; c[3]={b.lo.x,b.hi.y,b.lo.z};
+                c[4]={b.lo.x,b.lo.y,b.hi.z}; c[5]={b.hi.x,b.lo.y,b.hi.z};
+                c[6]={b.hi.x,b.hi.y,b.hi.z}; c[7]={b.lo.x,b.hi.y,b.hi.z};
+            }
+            auto edge = [&](int a, int b) {
+                lines.push_back({c[a], {0,0,0}});
+                lines.push_back({c[b], {0,0,0}});
             };
-            edge(p000,p100); edge(p100,p110); edge(p110,p010); edge(p010,p000);
-            edge(p001,p101); edge(p101,p111); edge(p111,p011); edge(p011,p001);
-            edge(p000,p001); edge(p100,p101); edge(p110,p111); edge(p010,p011);
+            edge(0,1); edge(1,2); edge(2,3); edge(3,0);
+            edge(4,5); edge(5,6); edge(6,7); edge(7,4);
+            edge(0,4); edge(1,5); edge(2,6); edge(3,7);
         }
         if (!lines.empty() && lines.size() <= 4096) {
             m_lineMesh.updateVertices(lines);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <vector>
 #include <entt/entt.hpp>
 #include "physics/Math.h"
 #include "physics/PhysicsTypes.h"
@@ -8,8 +9,8 @@
 namespace leo {
 
 // Collider 抽象接口: 碰撞代码只依赖此接口, 不知内部是点云还是 RB-PBD 刚体
-// 阶段1: PointCloudBox (8 点 + 12 强距离约束)
-// 阶段2 (M6): RigidBodyBox (RB-PBD, 接口不变)
+// 阶段1: PointCloudBox (8 点 + 12 强距离约束) — M2 demo 历史, 待删
+// 阶段2: RigidBodyBox (RB-PBD, 接口不变 + OBB 专用方法)
 class Collider {
 public:
     virtual ~Collider() = default;
@@ -20,26 +21,43 @@ public:
     virtual bool owns(entt::entity e) const = 0;
 };
 
-// 硬点云箱子: 8 个 VerletPoint + AABB 从 8 点重算
-// collidePoint 用箱体 AABB 做点 vs AABB
-class PointCloudBox : public Collider {
+// 接触流形: OBB-OBB / OBB-AABB 碰撞结果 (多点)
+struct ContactManifold {
+    bool hit = false;
+    glm::vec3 normal{0.0f};      // 最小穿透轴 (单位), 从 other 指向 this (this 应被推开的方向)
+    float penetration = 0.0f;
+    std::vector<glm::vec3> contact_points;  // 世界空间接触点 (1~4 个)
+};
+
+// RB-PBD 刚体盒子: 持有 RigidBody entity, OBB 碰撞
+class RigidBodyBox : public Collider {
 public:
-    // 8 个点的 entity (非拥有), 由 PhysicsSystem::spawnBox 创建
-    PointCloudBox(entt::registry& reg, std::array<entt::entity, 8> points);
+    RigidBodyBox(entt::registry& reg, entt::entity body)
+        : m_reg(reg), m_body(body) {}
 
     AABB getAABB() const override;
-    Contact collidePoint(const glm::vec3& p) const override;
+    Contact collidePoint(const glm::vec3& p) const override;  // 点 vs OBB (转局部用 pointVsAABB)
+    bool owns(entt::entity e) const override { return false; }  // 刚体不持有点 entity
 
-    const std::array<entt::entity, 8>& pointEntities() const { return m_points; }
-    // 检查某点是否属于此箱子 (避免自碰撞)
-    bool owns(entt::entity e) const override {
-        for (auto pe : m_points) if (pe == e) return true;
-        return false;
-    }
+    // OBB-OBB SAT 碰撞 (15 轴), 返回流形 (normal 从 other 指向 this)
+    ContactManifold collideOBB(const RigidBodyBox& other) const;
+    // OBB vs 静态 AABB (AABB 视作 q=identity 的 OBB), normal 从 aabb 指向 this
+    ContactManifold collideStaticAABB(const AABB& aabb) const;
+
+    const RigidBody& body() const;
+    RigidBody& bodyMut();
+    entt::entity bodyEntity() const { return m_body; }
 
 private:
+    // 内部 SAT 实现: 此 OBB (A) vs 另一 OBB (B 的 center/axes/half)
+    // normal 方向: 从 B 指向 A (A 应被推开)
+    ContactManifold satOBB(
+        const glm::vec3& cA, const glm::mat3& RA, const glm::vec3& hA,
+        const glm::vec3& cB, const glm::mat3& RB, const glm::vec3& hB) const;
+
     entt::registry& m_reg;
-    std::array<entt::entity, 8> m_points;
+    entt::entity m_body;
 };
 
 } // namespace leo
+

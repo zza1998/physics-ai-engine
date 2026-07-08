@@ -15,6 +15,7 @@ add_library(leo_core STATIC
     physics/Constraint.cpp
     physics/Collider.cpp
     physics/PhysicsSystem.cpp
+    physics/RBIntegrate.cpp
 )
 target_include_directories(leo_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}        # src/   -> "core/xxx" "physics/xxx"

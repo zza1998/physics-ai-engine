@@ -63,7 +63,7 @@ bool Application::init() {
     // 6b. 地面平面 + StaticBody (大 AABB, 顶面 y=0)
     auto ground = m_scene->addPlane(40.0f, 40.0f, {0.4f, 0.4f, 0.42f});
     m_scene->registry().emplace<StaticBody>(ground,
-        StaticBody{AABB{glm::vec3(-20, -1, -20), glm::vec3(20, 0, 20)}, 0.5f});
+        StaticBody{AABB{glm::vec3(-20, -1, -20), glm::vec3(20, 0, 20)}, 0.8f});
 
     // 6b2. 方向光 (Blinn-Phong 需 uLightColor/uLightDir/uViewPos, 否则 surface 全黑)
     //      方向从右上往下打, 让地面/台阶顶面被照亮.
