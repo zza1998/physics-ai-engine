@@ -22,6 +22,9 @@ public:
     void render(Scene& scene, Camera& camera, float aspect,
                 bool drawPoints, bool drawColliders, bool drawConstraints);
 
+    // M3a: 画 ragdoll 骨骼连线 (16 骨, 白色, 区别于约束黄)
+    void renderRagdollSkeletons(Scene& scene, Camera& camera, float aspect);
+
 private:
     Shader* m_shader = nullptr;  // 非拥有
     Mesh m_pointMesh;   // GL_POINTS, dynamic

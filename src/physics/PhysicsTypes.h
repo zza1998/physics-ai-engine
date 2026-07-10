@@ -2,7 +2,9 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <array>
 #include <memory>
+#include <entt/entt.hpp>
 #include "physics/Math.h"
 
 namespace leo {
@@ -69,6 +71,13 @@ inline glm::mat3 computeBoxInvInertiaLocal(float mass, const glm::vec3& half_siz
 // Collider 引用: 拥有 Collider 多态对象 (硬点云箱 / RB-PBD 刚体)
 struct ColliderRef {
     std::unique_ptr<Collider> collider;
+};
+
+// Ragdoll 引用: 17 点人形 ragdoll 的主体 entity, 持有 17 个 VerletPoint entity
+// 约束在 PhysicsSystem::m_constraints 里 (通过 entity 引用), RagdollRef 只持点列表
+struct RagdollRef {
+    std::array<entt::entity, 17> points;
+    entt::entity self = entt::null;  // 主体自身 entity
 };
 
 } // namespace leo

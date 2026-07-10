@@ -3,6 +3,7 @@
 #include "Application.h"
 #include "Logger.h"
 #include "graphics/MeshPrimitives.h"
+#include "physics/Ragdoll.h"
 #include <string>
 
 namespace leo {
@@ -181,6 +182,29 @@ void Application::update(float dt) {
         m_camera->update(dt, *m_input);
     }
 
+    // M3a 临时控制: 方向键给 ragdoll 骨盆施加水平冲量 (让它左右晃动)
+    // WASD 仍是 flycam, 方向键控制 ragdoll 不冲突
+    bool imguiWantKb = m_imgui && m_imgui->wantCaptureKeyboard();
+    if (!imguiWantKb) {
+        auto& reg = m_scene->registry();
+        for (auto e : reg.view<RagdollRef>()) {
+            RagdollRef& rd = reg.get<RagdollRef>(e);
+            auto* pelvis = reg.try_get<VerletPoint>(rd.points[Pelvis]);
+            if (!pelvis || pelvis->isStatic()) continue;
+            glm::vec3 impulse(0.0f);
+            float force = 0.02f;  // 每帧冲量 (调参)
+            if (m_input->isKeyDown(GLFW_KEY_UP))    impulse.z -= force;
+            if (m_input->isKeyDown(GLFW_KEY_DOWN))  impulse.z += force;
+            if (m_input->isKeyDown(GLFW_KEY_LEFT))  impulse.x -= force;
+            if (m_input->isKeyDown(GLFW_KEY_RIGHT)) impulse.x += force;
+            if (glm::dot(impulse, impulse) > 0.0f) {
+                // Verlet 冲量: 改 x_prev 使速度变化 (v = x_current - x_prev)
+                pelvis->x_prev -= impulse / pelvis->inv_mass;  // F = m*a → dv = F/m
+            }
+            break;  // 只控制第一个 ragdoll
+        }
+    }
+
     // 更新所有 system (PhysicsSystem 在此调用, 注册顺序保证物理先于渲染)
     float physStart = (float)glfwGetTime();
     for (auto& s : m_systems) {
@@ -200,6 +224,8 @@ void Application::render() {
                                 cfg.debug_draw_points,
                                 cfg.debug_draw_colliders,
                                 cfg.debug_draw_constraints);
+        // M3a: ragdoll 骨骼连线 (白色)
+        m_debugRenderer->renderRagdollSkeletons(*m_scene, *m_camera, m_window->aspect());
     }
 }
 

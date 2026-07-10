@@ -5,6 +5,7 @@ add_executable(leo_physics_tests
     test_nan_guard.cpp
     test_determinism.cpp
     test_rigidbody.cpp
+    test_ragdoll.cpp
 )
 target_link_libraries(leo_physics_tests PRIVATE leo_core gtest_main)
 include(GoogleTest)

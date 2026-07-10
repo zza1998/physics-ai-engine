@@ -44,7 +44,8 @@ float DistanceConstraint::violation(entt::registry& reg) const {
 }
 
 // ---- AngleConstraint ----
-// 投影策略 (简化): 若当前夹角超出 [min, max], 把 a/c 点绕 b 旋转回限位边界
+// 投影策略: 若当前夹角超出 [min, max], 把 a/c 点在 va-vc 平面内旋转回限位边界
+// 关键: 使用"朝对方旋转"的方式 (在平面内插值), 避免叉积轴符号翻转导致振荡
 void AngleConstraint::project(entt::registry& reg, float /*dt*/) {
     if (!reg.valid(m_a) || !reg.valid(m_b) || !reg.valid(m_c)) return;
     auto* pa = reg.try_get<VerletPoint>(m_a);
@@ -66,37 +67,55 @@ void AngleConstraint::project(entt::registry& reg, float /*dt*/) {
     if (angle >= m_min && angle <= m_max) return;  // 在限位内, 不解
 
     float target = (angle < m_min) ? m_min : m_max;
-    // 简化: 仅移动 a 和 c (绕 b), 按反质量分配
-    // 完整实现需绕旋转轴投影, M3 ragdoll 时细化. M2 给一个稳定近似:
-    // 把 a 和 c 在它们构成的平面内旋转到目标角
-    float rotate = target - angle;  // 需要旋转的角度
-    // 旋转轴 = va × vc, 共线时退化, 用任意垂直轴
-    glm::vec3 axis = glm::cross(va, vc);
-    if (glm::dot(axis, axis) < 1e-8f) {
-        // 共线: 选与 va 不平行的轴做叉积
-        glm::vec3 ref = (std::abs(va.y) < 0.9f) ? glm::vec3(0,1,0) : glm::vec3(1,0,0);
-        axis = glm::cross(va, ref);
-        if (glm::dot(axis, axis) < 1e-12f) return;
-    }
-    axis = glm::normalize(axis);
+    // 需要旋转的角度 (target - angle < 0 = 需减小角度 = 折叠)
+    float rotate = target - angle;
+    // 限制单步旋转量, 防止大角度修正注入能量 (落地瞬间关节急转→假性速度)
+    rotate = std::clamp(rotate, -0.52f, 0.52f);  // ~30°/步
 
-    // Rodrigues 旋转, 角度按反质量分摊
+    // 反质量分配: 重的少转, 轻的多转
     float wa = pa->inv_mass;
     float wc = pc->inv_mass;
     float wsum = wa + wc;
     if (wsum == 0.0f) return;
 
-    auto rotateVec = [](glm::vec3 v, glm::vec3 axis, float ang) {
+    // 稳健旋转: 把 v1 朝 v2 方向旋转 ang (在 v1-v2 平面内)
+    // 用 n1 + perp 基底插值, 不依赖叉积轴方向, 不会振荡
+    // perp = normalize(v2_proj - (v2_proj·n1)*n1), 即 v2 在垂直于 v1 方向的分量
+    // 正 ang = 朝 v2 转 (减小夹角), 负 ang = 远离 v2 (增大夹角)
+    auto rotateTowards = [](glm::vec3 v1, glm::vec3 v2, float ang) {
+        glm::vec3 n1 = glm::normalize(v1);
+        glm::vec3 n2 = glm::normalize(v2);
+        // v2 垂直于 v1 的分量
+        glm::vec3 perp = n2 - glm::dot(n2, n1) * n1;
+        float pl = glm::length(perp);
+        if (pl < 1e-8f) {
+            // 共线 (含反向 180°): 选任意垂直轴做旋转方向
+            glm::vec3 ref = (std::abs(n1.y) < 0.9f) ? glm::vec3(0,1,0) : glm::vec3(1,0,0);
+            perp = ref - glm::dot(ref, n1) * n1;
+            pl = glm::length(perp);
+            if (pl < 1e-8f) return v1;  // 极端退化, 不转
+        }
+        perp /= pl;
+        // 在 n1-perp 平面内旋转 ang: 正=朝 v2 (减小夹角), 负=远离 (增大夹角)
         float c = std::cos(ang);
         float s = std::sin(ang);
-        return v * c + glm::cross(axis, v) * s + axis * glm::dot(axis, v) * (1.0f - c);
+        return (n1 * c + perp * s) * glm::length(v1);  // 保持原长度
     };
 
+    // a 和 c 各分担一半角度变化, 按反质量分配比例
+    // rotate<0 (需减小角度): 两者都朝对方转 (正角度)
+    // rotate>0 (需增大角度): 两者都远离对方 (负角度)
+    float shareA = wc / wsum;  // a 承担的比例 (c 越重 a 转越多)
+    float shareC = wa / wsum;
+    // a 朝 c 转 -rotate*shareA (rotate<0→正=减小, rotate>0→负=增大)
+    float angA = -rotate * shareA * m_stiffness;
+    float angC = -rotate * shareC * m_stiffness;
+
     if (!pa->isStatic()) {
-        pa->x_current = pb->x_current + rotateVec(va, axis, rotate * (wc / wsum) * m_stiffness);
+        pa->x_current = pb->x_current + rotateTowards(va, vc, angA);
     }
     if (!pc->isStatic()) {
-        pc->x_current = pb->x_current + rotateVec(vc, -axis, rotate * (wa / wsum) * m_stiffness);
+        pc->x_current = pb->x_current + rotateTowards(vc, va, angC);
     }
 }
 

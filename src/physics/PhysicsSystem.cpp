@@ -2,6 +2,8 @@
 #include "physics/Verlet.h"
 #include "physics/RBIntegrate.h"
 #include "physics/Collider.h"
+#include "physics/Constraint.h"
+#include "physics/Ragdoll.h"
 #include "scene/Scene.h"
 #include "scene/Components.h"
 #include "graphics/Mesh.h"
@@ -9,14 +11,37 @@
 #include "Logger.h"
 #include <cmath>
 #include <algorithm>
+#include <array>
+#include <utility>
 #include <limits>
 
 namespace leo {
 
 // 碰撞响应配置 (Verlet 点路径用, M3 ragdoll)
-static constexpr float kPushSoften   = 0.5f;
+static constexpr float kPushSoften   = 0.8f;   // 位置投影软化 (提高收敛, 0.5→0.8)
 static constexpr float kMaxPushStep  = 0.10f;
 static constexpr float kFrictionTang = 0.5f;
+// Verlet 隐式速度上限 (每子步位移上限). 防止约束/碰撞修正过大注入假性速度.
+// 正常运动: 2m/s 下落 → dt_sub=1/480 → 0.004m/子步. 爆炸时 >0.1m/子步.
+// 上限 0.05m/子步 ≈ 24m/s, 允许翻倒/碰撞冲击但截断爆炸.
+static constexpr float kMaxVerletDispPerSubstep = 0.05f;
+
+// 限制 Verlet 隐式速度: |x_current - x_prev| 不得超过 kMaxVerletDispPerSubstep
+// 在约束求解后调用, 防止碰撞推挤/角度旋转/距离拉伸累积的假性速度传播到下一子步
+static void clampVerletVelocity(entt::registry& reg) {
+    auto view = reg.view<VerletPoint>();
+    for (auto e : view) {
+        VerletPoint& p = view.get<VerletPoint>(e);
+        if (p.isStatic()) continue;
+        glm::vec3 d = p.x_current - p.x_prev;
+        float len2 = glm::dot(d, d);
+        float maxLen = kMaxVerletDispPerSubstep;
+        if (len2 > maxLen * maxLen) {
+            float scale = maxLen / std::sqrt(len2);
+            p.x_prev = p.x_current - d * scale;
+        }
+    }
+}
 
 void PhysicsSystem::update(float dt, Scene& scene) {
     // dt 上限保护: 卡顿时不让物理爆炸
@@ -88,6 +113,9 @@ void PhysicsSystem::substep(float dt, Scene& scene) {
         solveConstraints(reg, dt);     // Verlet 距离/角度约束 (保留)
     }
 
+    // Verlet 速度限制: 防止约束/碰撞修正累积的假性速度爆炸
+    clampVerletVelocity(reg);
+
     // RB 速度求解: 冲量法 (保留重力 v, 只对接触法向归零 + 切向摩擦)
     // 用 collectContacts 缓存的流形, 不重新检测穿透, 确保已分离接触仍归零法向速度.
     applyContactImpulses(reg);
@@ -117,8 +145,19 @@ void PhysicsSystem::resolveCollisions(entt::registry& reg) {
             float push = c.penetration * kPushSoften;
             if (push > kMaxPushStep) push = kMaxPushStep;
             p.x_current += c.normal * push;
-            // 切向摩擦: 衰减切向速度 (位置差)
+
+            // Verlet 速度修正 (关键): 位置推 x_current 不改 x_prev, 导致
+            // v=(x_current-x_prev) 法向分量被人为增大. 16 次迭代累积→假性上抛速度→爆炸.
+            // 修复: 把法向接近速度归零 (restitution=0 落地), 相当于 RB 路径的 applyContactImpulses.
+            // 只归零 vn<0 (接近表面), 保留 vn>0 (分离方向, 允许弹起/翻滚).
             glm::vec3 v = p.x_current - p.x_prev;
+            float vn = glm::dot(v, c.normal);
+            if (vn < 0.0f) {
+                // x_prev += vn * normal → 使 dot(x_current - x_prev, normal) = 0
+                p.x_prev += c.normal * vn;
+            }
+            // 切向摩擦: 衰减切向速度 (位置差), 在法向归零后用更新后的 v
+            v = p.x_current - p.x_prev;
             glm::vec3 vt = v - glm::dot(v, c.normal) * c.normal;
             p.x_prev += vt * sb.friction * kFrictionTang;
         }
@@ -139,6 +178,12 @@ void PhysicsSystem::resolveCollisions(entt::registry& reg) {
             float push = c.penetration * kPushSoften;
             if (push > kMaxPushStep) push = kMaxPushStep;
             p.x_current += c.normal * push;
+            // 法向速度归零 (同 StaticBody 路径)
+            glm::vec3 v = p.x_current - p.x_prev;
+            float vn = glm::dot(v, c.normal);
+            if (vn < 0.0f) {
+                p.x_prev += c.normal * vn;
+            }
         }
     }
 }
@@ -227,6 +272,45 @@ entt::entity PhysicsSystem::spawnStaticBox(Scene& scene, const glm::vec3& pos, c
     glm::vec3 h = size * 0.5f;
     reg.emplace<StaticBody>(e, StaticBody{AABB{pos - h, pos + h}, 0.8f});
     return e;
+}
+
+// ---- M3a: ragdoll (Verlet/PBD 路径) ----
+
+entt::entity PhysicsSystem::spawnRagdoll(Scene& scene, const glm::vec3& pos, float scale) {
+    auto& reg = scene.registry();
+
+    // 1. 创建 17 个 VerletPoint (局部坐标 * scale + pos, 骨盆对齐 pos)
+    //    骨盆局部 (0,0.6,0), 偏移使骨盆落在 pos: offset = pos - (0,0.6,0)*scale
+    glm::vec3 offset = pos - kRagdollLocalPos[Pelvis] * scale;
+    std::array<entt::entity, 17> points;
+    for (int i = 0; i < 17; ++i) {
+        auto pe = reg.create();
+        glm::vec3 p = offset + kRagdollLocalPos[i] * scale;
+        reg.emplace<VerletPoint>(pe, VerletPoint{p, p, kRagdollInvMass[i], kRagdollGroup[i]});
+        points[i] = pe;
+    }
+
+    // 2. 距离约束 (16 骨骼) + 3 抗塌陷, stiffness=1.0
+    auto addDist = [&](int a, int b) {
+        float len = glm::distance(kRagdollLocalPos[a], kRagdollLocalPos[b]) * scale;
+        m_constraints.push_back(std::make_unique<DistanceConstraint>(points[a], points[b], len, 1.0f));
+    };
+    for (const auto& [a, b] : kRagdollBones) addDist(a, b);
+    for (const auto& [a, b] : kRagdollBrace) addDist(a, b);
+
+    // 3. 角度约束 (6 关节), stiffness=1.0
+    auto pi = 3.14159265358979323846f;
+    auto deg2rad = [&](float d) { return d * pi / 180.0f; };
+    for (const auto& [a, b, c, minDeg, maxDeg] : kRagdollJoints) {
+        m_constraints.push_back(std::make_unique<AngleConstraint>(
+            points[a], points[b], points[c], deg2rad(minDeg), deg2rad(maxDeg), 1.0f));
+    }
+
+    // 4. 主体 entity: RagdollRef (持 17 点) + Transform
+    auto body = reg.create();
+    reg.emplace<RagdollRef>(body, RagdollRef{points, body});
+    reg.emplace<Transform>(body, Transform{pos, {1,0,0,0}, {scale, scale, scale}});
+    return body;
 }
 
 // ---- RB-PBD 接触求解 (Step4) ----

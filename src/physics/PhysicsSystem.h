@@ -48,6 +48,10 @@ public:
                                 class Mesh* cubeMesh, class Shader* shader,
                                 const glm::vec3& albedo = {0.5f, 0.5f, 0.5f});
 
+    // M3a: 创建 17 点人形 ragdoll (Verlet/PBD 路径)
+    // pos = 骨盆目标位置, scale = 整体缩放
+    entt::entity spawnRagdoll(Scene& scene, const glm::vec3& pos, float scale = 1.0f);
+
     PhysicsConfig& config() { return m_cfg; }
     const PhysicsConfig& config() const { return m_cfg; }
 

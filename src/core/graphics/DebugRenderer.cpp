@@ -6,6 +6,7 @@
 #include "physics/Constraint.h"
 #include "physics/Collider.h"
 #include "physics/PhysicsTypes.h"
+#include "physics/Ragdoll.h"
 #include "Camera.h"
 #include <glm/glm.hpp>
 #include <vector>
@@ -141,6 +142,43 @@ void DebugRenderer::render(Scene& scene, Camera& camera, float aspect,
     }
 
     // 恢复深度测试状态 (不影响后续帧的实心几何渲染)
+    if (depthWasEnabled) glEnable(GL_DEPTH_TEST);
+}
+
+void DebugRenderer::renderRagdollSkeletons(Scene& scene, Camera& camera, float aspect) {
+    if (!m_shader) return;
+    auto& reg = scene.registry();
+    auto rdView = reg.view<RagdollRef>();
+    if (rdView.size() == 0) return;
+
+    m_shader->use();
+    m_shader->setMat4("uView", camera.viewMatrix());
+    m_shader->setMat4("uProj", camera.projectionMatrix(aspect));
+    glm::mat4 identity(1.0f);
+    m_shader->setMat4("uModel", identity);
+
+    GLboolean depthWasEnabled = glIsEnabled(GL_DEPTH_TEST);
+    glDisable(GL_DEPTH_TEST);
+
+    // 画每个 ragdoll 的 16 根骨连线 (白色)
+    std::vector<Vertex> lines;
+    for (auto e : rdView) {
+        RagdollRef& rd = rdView.get<RagdollRef>(e);
+        for (const auto& [a, b] : kRagdollBones) {
+            if (a >= 17 || b >= 17) continue;
+            auto* pa = reg.try_get<VerletPoint>(rd.points[a]);
+            auto* pb = reg.try_get<VerletPoint>(rd.points[b]);
+            if (!pa || !pb) continue;
+            lines.push_back({pa->x_current, {0,0,0}});
+            lines.push_back({pb->x_current, {0,0,0}});
+        }
+    }
+    if (!lines.empty() && lines.size() <= 4096) {
+        m_lineMesh.updateVertices(lines);
+        m_shader->setVec3("uColor", glm::vec3(0.9f, 0.9f, 0.95f));  // 浅白
+        m_lineMesh.draw((GLsizei)lines.size());
+    }
+
     if (depthWasEnabled) glEnable(GL_DEPTH_TEST);
 }
 
